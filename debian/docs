@@ -1,0 +1,3 @@
+debian/tests/run-unit-test
+debian/README.test
+tests

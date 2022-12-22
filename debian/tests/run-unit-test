@@ -1,0 +1,19 @@
+#!/bin/sh -e
+
+pkgname=rlang
+debname=r-cran-rlang
+
+if [ "$AUTOPKGTEST_TMP" = "" ] ; then
+    AUTOPKGTEST_TMP=`mktemp -d /tmp/${debname}-test.XXXXXX`
+    trap "rm -rf $AUTOPKGTEST_TMP" 0 INT QUIT ABRT PIPE TERM
+fi
+cp -a /usr/share/doc/$debname/tests/ $AUTOPKGTEST_TMP
+cd $AUTOPKGTEST_TMP/tests
+gunzip -r *
+# Skip tests that fail only on debci infrastructure, see #912004
+rm -f testthat/test-env-binding.R testthat/test-env.R
+for testfile in *.R; do
+    echo "BEGIN TEST $testfile"
+    LC_ALL=C.UTF-8 R --no-save < $testfile
+done
+
