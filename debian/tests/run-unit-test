@@ -14,6 +14,10 @@ gunzip -r *
 rm -f testthat/test-env-binding.R testthat/test-env.R
 for testfile in *.R; do
     echo "BEGIN TEST $testfile"
-    LC_ALL=C.UTF-8 R --no-save < $testfile
+    # LC_ALL=C.UTF-8 R --no-save < $testfile
+    #── Failure ('test-vec.R:87:3'): variadic ctors still work without warnings (#1210) ──
+    #`{ ... }` threw an unexpected warning.
+    #Message: Changing language has no effect when envvar LC_ALL='C.UTF-8'
+    #Class:   simpleWarning/warning/condition
+    R --no-save < $testfile
 done
-

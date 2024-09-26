@@ -1,23 +1,23 @@
-#' Dynamic dots
+#' Dynamic dots features
 #'
 #' @description
 #'
-#' The `...` syntax of base R allows you to:
+#' The base `...` syntax supports:
 #'
-#' - __Forward__ arguments from function to function, matching them
-#'   along the way to function parameters.
+#' - __Forwarding__ arguments from function to function, matching them
+#'   along the way to arguments.
 #'
-#' - __Collect__ arguments inside data structures, e.g. with [c()] or
+#' - __Collecting__ arguments inside data structures, e.g. with [c()] or
 #'   [list()].
 #'
-#' Dynamic dots offer a few additional features:
+#' Dynamic dots offer a few additional features,
+#' [injection][topic-inject] in particular:
 #'
-#' 1. You can __splice__ arguments saved in a list with the [big
-#'    bang][quasiquotation] operator `!!!`.
+#' 1. You can __splice__ arguments saved in a list with the splice
+#'    operator [`!!!`][splice-operator].
 #'
-#' 2. You can __unquote__ names by using the [glue][glue::glue] syntax
-#'    or the [bang bang][quasiquotation] operator `!!` on the
-#'    left-hand side of `:=`.
+#' 2. You can __inject__ names with [glue syntax][glue-operators] on
+#'    the left-hand side of `:=`.
 #'
 #' 3. Trailing commas are ignored, making it easier to copy and paste
 #'    lines of arguments.
@@ -27,19 +27,19 @@
 #'
 #' If your function takes dots, adding support for dynamic features is
 #' as easy as collecting the dots with [list2()] instead of [list()].
+#' See also [dots_list()], which offers more control over the collection.
 #'
-#' Other dynamic dots collectors are [dots_list()], which is more
-#' configurable than [list2()], `vars()` which doesn't force its
-#' arguments, and [call2()] for creating calls.
+#' In general, passing `...` to a function that supports dynamic dots
+#' causes your function to inherit the dynamic behaviour.
 #'
-#' Document dynamic docs using this standard tag:
+#' In packages, document dynamic dots with this standard tag:
 #'
 #' ```
 #'  @@param ... <[`dynamic-dots`][rlang::dyn-dots]> What these dots do.
 #' ```
 #'
 #' @name dyn-dots
-#' @aliases tidy-dots
+#' @aliases tidy-dots doc_dots_dynamic
 #'
 #' @examples
 #' f <- function(...) {
@@ -47,21 +47,30 @@
 #'   rev(out)
 #' }
 #'
-#' # Splice
+#' # Trailing commas are ignored
+#' f(this = "that", )
+#'
+#' # Splice lists of arguments with `!!!`
 #' x <- list(alpha = "first", omega = "last")
 #' f(!!!x)
 #'
-#' # Unquote a name, showing both the `!!` bang bang and `{}` glue style
-#' nm <- "key"
-#' f(!!nm := "value")
-#' f("{nm}" := "value")
-#' f("prefix_{nm}" := "value")
-#'
-#' # Tolerate a trailing comma
-#' f(this = "that", )
+#' # Inject a name using glue syntax
+#' if (is_installed("glue")) {
+#'   nm <- "key"
+#'   f("{nm}" := "value")
+#'   f("prefix_{nm}" := "value")
+#' }
 NULL
 
-#' Collect dots in a list
+#' @rdname dyn-dots
+#' @usage NULL
+#' @export
+`:=` <- function(x, y) {
+  abort("`:=` can only be used within dynamic dots.", call = caller_env())
+}
+
+
+#' Collect dynamic dots in a list
 #'
 #' `list2(...)` is equivalent to `list(...)` with a few additional
 #' features, collectively called [dynamic dots][dyn-dots]. While
@@ -72,11 +81,17 @@ NULL
 #'   [dynamic][dyn-dots].
 #' @return A list containing the `...` inputs.
 #'
+#' @details
+#' For historical reasons, `dots_list()` creates a named list by
+#' default. By comparison `list2()` implements the preferred behaviour
+#' of only creating a names vector when a name is supplied.
+#'
 #' @export
 list2 <- function(...) {
-  .Call(rlang_dots_list,
+  .Call(
+    ffi_dots_list,
     frame_env = environment(),
-    named = FALSE,
+    named = NULL,
     ignore_empty = "trailing",
     preserve_empty = FALSE,
     unquote_names = TRUE,
@@ -91,9 +106,10 @@ ll <- list2
 
 # Preserves empty arguments
 list3 <- function(...) {
-  .Call(rlang_dots_list,
+  .Call(
+    ffi_dots_list,
     frame_env = environment(),
-    named = FALSE,
+    named = NULL,
     ignore_empty = "trailing",
     preserve_empty = TRUE,
     unquote_names = TRUE,
@@ -104,9 +120,12 @@ list3 <- function(...) {
 
 
 #' @rdname list2
-#' @param .named Whether to ensure all dots are named. Unnamed
-#'   elements are processed with [as_label()] to build a default
-#'   name.
+#' @param .named If `TRUE`, unnamed inputs are automatically named
+#'   with [as_label()]. This is equivalent to applying
+#'   [exprs_auto_name()] on the result. If `FALSE`, unnamed elements
+#'   are left as is and, if fully unnamed, the list is given minimal
+#'   names (a vector of `""`). If `NULL`, fully unnamed results are
+#'   left with `NULL` names.
 #' @param .ignore_empty Whether to ignore empty arguments. Can be one
 #'   of `"trailing"`, `"none"`, `"all"`. If `"trailing"`, only the
 #'   last argument is ignored if it is empty.
@@ -119,10 +138,9 @@ list3 <- function(...) {
 #'   `"first"` to only keep the first occurrences, to `"last"` to keep
 #'   the last occurrences, and to `"error"` to raise an informative
 #'   error and indicate what arguments have duplicated names.
-#' @param .check_assign Whether to check for `<-` calls passed in
-#'   dots. When `TRUE` and a `<-` call is detected, a warning is
-#'   issued to advise users to use `=` if they meant to match a
-#'   function parameter, or wrap the `<-` call in braces otherwise.
+#' @param .check_assign Whether to check for `<-` calls. When `TRUE` a
+#'   warning recommends users to use `=` if they meant to match a
+#'   function parameter or wrap the `<-` call in curly braces otherwise.
 #'   This ensures assignments are explicit.
 #' @export
 #' @examples
@@ -158,19 +176,22 @@ list3 <- function(...) {
 #' fn("wrong!", dat = letters)   # partial matching of `data`
 #' fn(some_data, !!!list(data = letters))  # no matching
 #'
+#' # Empty trailing arguments are allowed:
+#' list2(1, )
 #'
-#' # Empty arguments trigger an error by default:
-#' try(fn(, ))
+#' # But non-trailing empty arguments cause an error:
+#' try(list2(1, , ))
 #'
-#' # You can choose to preserve empty arguments instead:
+#' # Use the more configurable `dots_list()` function to preserve all
+#' # empty arguments:
 #' list3 <- function(...) dots_list(..., .preserve_empty = TRUE)
 #'
 #' # Note how the last empty argument is still ignored because
 #' # `.ignore_empty` defaults to "trailing":
-#' list3(, )
+#' list3(1, , )
 #'
 #' # The list with preserved empty arguments is equivalent to:
-#' list(missing_arg())
+#' list(1, missing_arg())
 #'
 #'
 #' # Arguments with duplicated names are kept by default:
@@ -200,7 +221,8 @@ dots_list <- function(...,
                       .preserve_empty = FALSE,
                       .homonyms = c("keep", "first", "last", "error"),
                       .check_assign = FALSE) {
-  dots <- .Call(rlang_dots_list,
+  .Call(
+    ffi_dots_list,
     frame_env = environment(),
     named = .named,
     ignore_empty = .ignore_empty,
@@ -209,8 +231,6 @@ dots_list <- function(...,
     homonyms = .homonyms,
     check_assign = .check_assign
   )
-  names(dots) <- names2(dots)
-  dots
 }
 
 dots_split <- function(...,
@@ -219,9 +239,10 @@ dots_split <- function(...,
                        .preserve_empty = FALSE,
                        .homonyms = c("keep", "first", "last", "error"),
                        .check_assign = FALSE) {
-  dots <- .Call(rlang_dots_list,
+  dots <- .Call(
+    ffi_dots_list,
     frame_env = environment(),
-    named = FALSE,
+    named = NULL,
     ignore_empty = .ignore_empty,
     preserve_empty = .preserve_empty,
     unquote_names = TRUE,
@@ -242,7 +263,7 @@ dots_split <- function(...,
   }
 
   if (!is_null(.n_unnamed) && all(n != .n_unnamed)) {
-    ns <- chr_enumerate(.n_unnamed)
+    ns <- oxford_comma(.n_unnamed)
     abort(sprintf("Expected %s unnamed arguments in `...`", ns))
   }
 
@@ -255,85 +276,53 @@ dots_split <- function(...,
   list(named = named, unnamed = unnamed)
 }
 
-#' Splice lists
+#' Splice values at dots collection time
 #'
 #' @description
+#' The splicing operator `!!!` operates both in values contexts like
+#' [list2()] and [dots_list()], and in metaprogramming contexts like
+#' [expr()], [enquos()], or [inject()]. While the end result looks the
+#' same, the implementation is different and much more efficient in
+#' the value cases. This difference in implementation may cause
+#' performance issues for instance when going from:
 #'
-#' \Sexpr[results=rd, stage=render]{rlang:::lifecycle("questioning")}
-#'
-#' - `splice` marks an object to be spliced. It is equivalent to using
-#'   `!!!` in a function taking [dynamic dots][dyn-dots].
-#'
-#' - `dots_splice()` is like [dots_list()] but automatically splices
-#'   list inputs.
-#'
-#'
-#' @section Standard splicing versus quoting splicing:
-#'
-#' The `!!!` operator works differently in _standard_ functions taking
-#' dots with `dots_list()` than in _quoting_ functions taking dots
-#' with [enexprs()] or [enquos()].
-#'
-#' * In quoting functions `!!!` disaggregates its argument (let's call
-#'   it `x`) into as many objects as there are elements in
-#'   `x`. E.g. `quo(foo(!!! c(1, 2)))` is completely equivalent to
-#'   `quo(foo(1, 2))`. The creation of those separate objects has an
-#'   overhead but is typically not important when manipulating calls
-#'   because function calls typically take a small number of
-#'   arguments.
-#'
-#' * In standard functions, disaggregating the spliced collection
-#'   would have a negative performance impact in cases where
-#'   `dots_list()` is used to build up data structures from user
-#'   inputs. To avoid this spliced inputs are marked with [splice()]
-#'   and the final list is built with (the equivalent of)
-#'   `flatten_if(dots, is_spliced)`.
-#'
-#' Most of the time you should not care about the difference. However
-#' if you use a standard function taking tidy dots within a quoting
-#' function, the `!!!` operator will disaggregate its argument because
-#' the behaviour of the quasiquoting function has priority. You might
-#' then observe some performance cost in edge cases. Here is one
-#' example where this would happen:
-#'
-#' ```
-#' purrr::rerun(10, dplyr::bind_rows(!!! x))
+#' ```r
+#' xs <- list(2, 3)
+#' list2(1, !!!xs, 4)
 #' ```
 #'
-#' `purrr::rerun()` is a quoting function and `dplyr::bind_rows()` is
-#' a standard function. Because `bind_rows()` is called _inside_
-#' `rerun()`, the list `x` will be disaggregated into a pairlist of
-#' arguments. To avoid this you can use `splice()` instead:
+#' to:
 #'
-#' ```
-#' purrr::rerun(10, dplyr::bind_rows(splice(x)))
+#' ```r
+#' inject(list2(1, !!!xs, 4))
 #' ```
 #'
+#' In the former case, the performant value-splicing is used. In the
+#' latter case, the slow metaprogramming splicing is used.
 #'
-#' @section Life cycle:
+#' A common practical case where this may occur is when code is
+#' wrapped inside a tidyeval context like `dplyr::mutate()`. In this
+#' case, the metaprogramming operator `!!!` will take over the
+#' value-splicing operator, causing an unexpected slowdown.
 #'
-#' * `dots_splice()` is in the questioning stage. It is part of our
-#'   experiments with dots semantics. Compared to `dots_list()`,
-#'   `dots_splice()` automatically splices lists. We now lean towards
-#'   adopting a single type of dots semantics (those of `dots_list()`)
-#'   where splicing is explicit.
+#' To avoid this in performance-critical code, use `splice()` instead
+#' of `!!!`:
 #'
-#' * `splice()` is in the questioning stage. It is not clear whether it is
-#'   really needed as there are other ways to avoid the performance
-#'   issue discussed above.
+#' ```r
+#' # These both use the fast splicing:
+#' list2(1, splice(xs), 4)
+#' inject(list2(1, splice(xs), 4))
+#' ```
 #'
-#'
-#' @param x A list to splice.
-#'
-#' @keywords internal
+#' @param x A list or vector to splice non-eagerly.
 #' @export
 splice <- function(x) {
-  .Call(rlang_new_splice_box, x)
+  .Call(ffi_new_splice_box, x)
 }
 #' @rdname splice
 #' @export
 is_spliced <- function(x) {
-  .Call(rlang_is_splice_box, x)
+  .Call(ffi_is_splice_box, x)
 }
 #' @rdname splice
 #' @export
@@ -345,28 +334,6 @@ print.rlang_box_splice <- function(x, ...) {
   cat_line("<spliced>")
   print(unbox(x))
 }
-
-#' @rdname splice
-#' @inheritParams dots_list
-#' @export
-dots_splice <- function(...,
-                        .ignore_empty = c("trailing", "none", "all"),
-                        .preserve_empty = FALSE,
-                        .homonyms = c("keep", "first", "last", "error"),
-                        .check_assign = FALSE) {
-  dots <- .Call(rlang_dots_flat_list,
-    frame_env = environment(),
-    named = FALSE,
-    ignore_empty = .ignore_empty,
-    preserve_empty = .preserve_empty,
-    unquote_names = TRUE,
-    homonyms = .homonyms,
-    check_assign = .check_assign
-  )
-  names(dots) <- names2(dots)
-  dots
-}
-
 
 #' Evaluate dots with preliminary splicing
 #'
@@ -393,9 +360,10 @@ dots_values <- function(...,
                         .preserve_empty = FALSE,
                         .homonyms = c("keep", "first", "last", "error"),
                         .check_assign = FALSE) {
-  .External(rlang_ext_dots_values,
+  .External(
+    ffi_dots_values,
     env = environment(),
-    named = FALSE,
+    named = NULL,
     ignore_empty = .ignore_empty,
     preserve_empty = .preserve_empty,
     unquote_names = TRUE,
@@ -413,48 +381,6 @@ formals(dots_values) <- pairlist(
   .check_assign = FALSE
 )
 
-#' Capture definition objects
-#'
-#' @section Life cycle:
-#'
-#' `dots_definitions()` is experimental. Expect API changes.
-#'
-#' @inheritParams nse-defuse
-#'
-#' @keywords internal
-#' @export
-dots_definitions <- function(...,
-                             .named = FALSE,
-                             .ignore_empty = c("trailing", "none", "all")) {
-  dots <- .Call(rlang_quos_interp,
-    frame_env = environment(),
-    named = .named,
-    ignore_empty = .ignore_empty,
-    unquote_names = FALSE,
-    homonyms = "keep",
-    check_assign = FALSE
-  )
-
-  is_def <- map_lgl(dots, function(dot) is_definition(quo_get_expr(dot)))
-  defs <- map(dots[is_def], as_definition)
-
-  list(dots = dots[!is_def], defs = defs)
-}
-as_definition <- function(def) {
-  # The definition comes wrapped in a quosure
-  env <- quo_get_env(def)
-  def <- quo_get_expr(def)
-
-  list(
-    lhs = new_quosure(f_lhs(def), env),
-    rhs = new_quosure(f_rhs(def), env)
-  )
-}
-
-dots_node <- function(...) {
-  node_cdr(sys.call())
-}
-
 #' How many arguments are currently forwarded in dots?
 #'
 #' This returns the number of arguments currently forwarded in `...`
@@ -471,6 +397,8 @@ dots_n <- function(...) {
 }
 
 abort_dots_homonyms <- function(dots, dups) {
+  .__error_call__. <- "caller"
+
   nms <- names(dots)
 
   # This includes the first occurrence as well
@@ -483,39 +411,19 @@ abort_dots_homonyms <- function(dots, dups) {
     abort("Internal error: Expected dots duplicates")
   }
 
-  if (dups_n == 1L) {
-    nm <- dups_nms
-    enum <- homonym_enum(nm, dups_all, nms)
-    pos_msg <- sprintf(
-      "We found multiple arguments named `%s` at positions %s",
-      nm,
-      enum
-    )
-    abort(paste_line(
-      "Arguments can't have the same name.",
-      pos_msg
-    ))
-  }
-
   enums <- map(dups_nms, homonym_enum, dups_all, nms)
-  line <- "* Multiple arguments named `%s` at positions %s"
-  enums_lines <- map2(dups_nms, enums, sprintf, fmt = line)
+  line <- "Multiple arguments named `%s` at positions %s."
+  enums_lines <- map2_chr(dups_nms, enums, sprintf, fmt = line)
 
-  abort(paste_line(
-    "Arguments can't have the same name. We found these problems:",
-    !!!enums_lines
+  abort(c(
+    "Arguments in `...` must have unique names.",
+    set_names(enums_lines, "x")
   ))
 }
 
 homonym_enum <- function(nm, dups, nms) {
   dups[nms != nm] <- FALSE
-  chr_enumerate(as.character(which(dups)), final = "and")
-}
-
-check_dots_empty <- function(...) {
-  if (nargs()) {
-    abort("These `...` must be empty")
-  }
+  oxford_comma(as.character(which(dups)), final = "and")
 }
 
 
@@ -524,7 +432,12 @@ check_dots_empty <- function(...) {
 # `x` always end up on the names of the output list,
 # unlike `as.list.factor()`.
 rlang_as_list <- function(x) {
-  if (is.list(x)) {
+  if ("list" %in% class(x)) {
+    # `x` explicitly inherits from `"list"`, which we take it to mean
+    # that it has list storage (i.e. it's not a class like POSIXlt,
+    # it's not proxied, and it's not a scalar object like `"lm"`)
+    out <- vec_unstructure(x)
+  } else if (is.list(x)) {
     out <- rlang_as_list_from_list_impl(x)
   } else {
     out <- rlang_as_list_impl(x)
@@ -565,3 +478,31 @@ rlang_as_list_from_list_impl <- function(x) {
 
   out
 }
+
+
+#' Development notes - `dots.R`
+#'
+#' @section `.__error_call__.` flag in dots collectors:
+#'
+#' Dots collectors like [dots_list()] are a little tricky because they
+#' may error out in different situations. Do we want to forward the
+#' context, i.e. set the call flag to the calling environment?
+#' Collectors throw errors in these cases:
+#'
+#' 1. While checking their own parameters, in which case the relevant
+#'    context is the collector itself and we don't forward.
+#'
+#' 2. While collecting the dots, during evaluation of the supplied
+#'    arguments. In this case forwarding or not is irrelevant because
+#'    expressions in `...` are evaluated in their own environment
+#'    which is not connected to the collector's context.
+#'
+#' 3. While collecting the dots, during argument constraints checks
+#'    such as determined by the `.homonyms` argument. In this case we
+#'    want to forward the context because the caller of the dots
+#'    collector is the one who determines the constraints for its
+#'    users.
+#'
+#' @keywords internal
+#' @name dev-notes-dots
+NULL

@@ -12,17 +12,32 @@
 #'   (compare to [base::parse()] which returns a base::expression
 #'   vector). All functions also support R connections.
 #'
+#' * `parse_expr()` concatenates `x` with `\\n` separators prior to
+#'   parsing in order to support the roundtrip
+#'   `parse_expr(expr_deparse(x))` (deparsed expressions might be
+#'   multiline). On the other hand, `parse_exprs()` doesn't do any
+#'   concatenation because it's designed to support named inputs. The
+#'   names are matched to the expressions in the output, which is
+#'   useful when a single named string creates multiple expressions.
+#'
+#'   In other words, `parse_expr()` supports vector of lines whereas
+#'   `parse_exprs()` expects vectors of complete deparsed expressions.
+#'
 #' * `parse_quo()` and `parse_quos()` are variants that create a
-#'   [quosure][quo] that inherits from the global environment by
-#'   default. This is appropriate when you're parsing external user
-#'   input to be evaluated in user context (rather than the private
-#'   contexts of your functions).
+#'   [quosure][quo]. Supply `env = current_env()` if you're parsing
+#'   code to be evaluated in your current context. Supply `env =
+#'   global_env()` when you're parsing external user input to be
+#'   evaluated in user context.
 #'
 #'   Unlike quosures created with [enquo()], [enquos()], or `{{`, a
 #'   parsed quosure never contains injected quosures. It is thus safe
 #'   to evaluate them with `eval()` instead of [eval_tidy()], though
 #'   the latter is more convenient as you don't need to extract `expr`
 #'   and `env`.
+#'
+#' @details
+#' Unlike [base::parse()], these functions never retain source reference
+#' information, as doing so is slow and rarely necessary.
 #'
 #' @param x Text containing expressions to parse_expr for
 #'   `parse_expr()` and `parse_exprs()`. Can also be an R connection,
@@ -55,13 +70,19 @@
 #' # We can now parse it by supplying a connection:
 #' parse_exprs(file(path))
 parse_expr <- function(x) {
-  exprs <- parse_exprs(x)
+  if (is_character(x)) {
+    exprs <- chr_parse(paste_line(x))
+  } else {
+    exprs <- parse_exprs(x)
+  }
 
   n <- length(exprs)
-  if (n == 0) {
-    abort("No expression to parse")
-  } else if (n > 1) {
-    abort("More than one expression parsed")
+  if (n != 1) {
+    abort(sprintf(
+      "%s must contain exactly 1 expression, not %d.",
+      format_arg("x"),
+      n
+    ))
   }
 
   exprs[[1]]
@@ -74,27 +95,35 @@ parse_exprs <- function(x) {
       open(x)
       on.exit(close(x))
     }
-    exprs <- parse(file = x)
+    exprs <- parse(file = x, keep.source = FALSE)
   } else if (is.character(x)) {
     exprs <- chr_parse_exprs(x)
   } else {
-    abort("`x` must be a character vector or an R connection")
+    stop_input_type(x, "a character vector or an R connection")
   }
   as.list(exprs)
 }
 
 chr_parse_exprs <- function(x) {
-  parsed <- map(x, function(elt) as.list(parse(text = elt)))
+  parsed <- map(x, function(elt) as.list(chr_parse(elt)))
 
   nms <- names(parsed)
   parsed <- unname(parsed)
 
   if (!is_null(nms)) {
-    nms <- flatten_chr(map2(parsed, nms, rep_along))
+    nms <- list_c(map2(parsed, nms, rep_along))
   }
-  parsed <- flatten(parsed)
+  if (length(parsed)) {
+    parsed <- list_c(parsed)
+  }
 
   set_names(parsed, nms)
+}
+
+chr_parse <- function(x) {
+  # Never keep sources, because they get dropped anyways when combining
+  # multiple expressions together, and keeping them here is very slow
+  parse(text = x, keep.source = FALSE)
 }
 
 #' @rdname parse_expr
@@ -104,18 +133,14 @@ chr_parse_exprs <- function(x) {
 #'   evaluate the R code in an isolated context (perhaps a child of
 #'   the global environment or of the [base environment][base_env]).
 #' @export
-parse_quo <- function(x, env = global_env()) {
-  if (missing(env)) {
-    abort("The quosure environment should be explicitly supplied as `env`")
-  }
+parse_quo <- function(x, env) {
+  check_required(env)
   new_quosure(parse_expr(x), as_environment(env))
 }
 #' @rdname parse_expr
 #' @export
-parse_quos <- function(x, env = global_env()) {
-  if (missing(env)) {
-    abort("The quosure environment should be explicitly supplied as `env`")
-  }
+parse_quos <- function(x, env) {
+  check_required(env)
   out <- map(parse_exprs(x), new_quosure, env = as_environment(env))
   new_quosures(out)
 }

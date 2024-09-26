@@ -20,7 +20,7 @@ quo_name(quo)
 \item{nlines}{Maximum number of lines to extract.}
 }
 \description{
-\Sexpr[results=rd, stage=render]{rlang:::lifecycle("questioning")}
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#superseded}{\figure{lifecycle-superseded.svg}{options: alt='[Superseded]'}}}{\strong{[Superseded]}}
 
 \strong{Note:} You should now use \code{\link[=as_label]{as_label()}} or \code{\link[=as_name]{as_name()}} instead
 of \code{quo_name()}. See life cycle section below.
@@ -45,7 +45,7 @@ and strings is non-lossy and well defined.
 \section{Life cycle}{
 
 
-These functions are in the questioning life cycle stage.
+These functions are superseded.
 \itemize{
 \item \code{\link[=as_label]{as_label()}} and \code{\link[=as_name]{as_name()}} should be used instead of
 \code{quo_name()}. \code{as_label()} transforms any R object to a string
@@ -81,3 +81,4 @@ quo_name(quo(!! sym))
 \seealso{
 \code{\link[=expr_label]{expr_label()}}, \code{\link[=f_label]{f_label()}}
 }
+\keyword{internal}

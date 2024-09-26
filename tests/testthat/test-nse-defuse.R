@@ -92,16 +92,10 @@ test_that("corner cases are handled when interpolating dot names", {
     expect_identical(names(quos(!!var := NULL)), "NA")
 
     var <- NULL
-    expect_error(quos(!!var := NULL), "must be a string or a symbol")
-})
-
-test_that("definitions are interpolated", {
-  var1 <- "foo"
-  var2 <- "bar"
-  dots <- dots_definitions(def = foo(!!var1) := bar(!!var2))
-
-  pat <- list(lhs = quo(foo("foo")), rhs = quo(bar("bar")))
-  expect_identical(dots$defs$def, pat)
+    expect_snapshot({
+      (expect_error(quos(!!var := NULL)))
+      (expect_error(list2(!!c("a", "b") := NULL)))
+    })
 })
 
 test_that("dots are forwarded to named arguments", {
@@ -232,11 +226,12 @@ test_that("can capture missing argument", {
 })
 
 test_that("serialised unicode in `:=` LHS is unserialised", {
+  skip_if_no_utf8_marker()
   nms <- with_latin1_locale({
     exprs <- exprs("\u5e78" := 10)
     names(exprs)
   })
-  expect_identical(as_bytes(nms), as_bytes("\u5e78"))
+  expect_identical(charToRaw(nms), charToRaw("\u5e78"))
 })
 
 test_that("exprs() supports auto-naming", {
@@ -394,10 +389,31 @@ test_that("endots() supports `.ignore_empty`", {
   expect_identical(fn(foo, ), exprs(foo))
 })
 
+test_that("endots() supports `.ignore_null` (#1450)", {
+  # enquos()
+  fn <- function(...) enquos(..., .ignore_null = "all")
+  expect_identical(fn(NULL, NULL), quos())
+  expect_identical(fn(foo = NULL, NULL), quos(foo = NULL))
+  expect_identical(fn(!!!list(foo = NULL), NULL), quos(foo = NULL))
+
+  fn <- function(foo, ...) enquos(foo, ..., .ignore_null = "all")
+  expect_identical(fn(NULL, NULL), quos())
+
+  fn <- function(...) enquos(...)
+  expect_identical(fn(NULL, NULL), quos(NULL, NULL))
+
+  # enexprs()
+  fn <- function(...) enexprs(..., .ignore_null = "all")
+  expect_identical(fn(NULL, NULL), exprs())
+
+  fn <- function(...) enexprs(...)
+  expect_identical(fn(NULL, NULL), exprs(NULL, NULL))
+})
+
 test_that("ensyms() captures multiple symbols", {
   fn <- function(arg, ...) ensyms(arg, ...)
   expect_identical(fn(foo, bar, baz), exprs(foo, bar, baz))
-  expect_error(fn(foo()), "Only strings can be converted to symbols")
+  expect_snapshot(err(fn(foo())))
 })
 
 test_that("enquos() works with lexically scoped dots", {
@@ -414,27 +430,13 @@ test_that("enquo() works with lexically scoped arguments", {
   expect_identical(capture(foo), quo(foo))
 })
 
-test_that("dots_definitions() uses tidy eval", {
-  var1 <- "foo"
-  var2 <- "bar"
-  dots <- dots_definitions(pat = foo(!!var1) := bar(!!var2))
-  pat <- list(lhs = quo(foo("foo")), rhs = quo(bar("bar")))
-  expect_identical(dots$defs$pat, pat)
-})
-
-test_that("dots_definitions() accepts other types of arguments", {
-  dots <- dots_definitions(A = a := b, B = c)
-  expect_identical(dots$defs$A, list(lhs = quo(a), rhs = quo(b)))
-  expect_identical(dots$dots$B, quo(c))
-})
-
 test_that("closures are captured with their calling environment", {
   expect_reference(quo_get_env(quo(!!function() NULL)), environment())
 })
 
 test_that("the missing argument is captured", {
   expect_equal_(
-    quos(!!missing_arg()),
+    quos(!!missing_arg(), .ignore_empty = "none"),
     quos(, ),
     ignore_formula_env = TRUE
   )
@@ -455,10 +457,6 @@ test_that("the missing argument is captured", {
 test_that("missing names are forwarded", {
   x <- set_names(1:2, c(NA, NA))
   expect_identical_(names(exprs(!!!x)), chr(na_chr, na_chr))
-})
-
-test_that("`.named` must be integerish", {
-  expect_error(exprs(foo, .named = 100.5), "must be a scalar logical")
 })
 
 test_that("auto-naming uses type_sum() (#573)", {
@@ -485,6 +483,18 @@ test_that("enexprs() and enquos() support `.ignore_empty = 'all'` (#414)", {
   expect_identical(myquos("all"), quos())
 })
 
+test_that("`enquos()` does not discard named missing arguments (#1229)", {
+  fn <- function(...) enquos(..., .ignore_empty = "all")
+  expect_equal(
+    fn(x = ),
+    quos(x = )
+  )
+  expect_equal(
+    fn(, foo),
+    quos(foo)
+  )
+})
+
 test_that("enexprs() and enquos() support empty dots", {
   myexprs <- function(what, ...) enexprs(..., .ignore_empty = what)
   expect_identical(myexprs("none"), exprs())
@@ -498,7 +508,7 @@ test_that("enexprs() and enquos() support empty dots", {
 })
 
 test_that("supplying `!!!` with a name warns", {
-  local_options(lifecycle_verbose_soft_deprecation = TRUE)
+  local_options(lifecycle_verbosity = "warning")
   expect_no_warning_(quos(!!!1, 2, !!!NULL))
   expect_defunct(quos(foo = !!!1, 2, bar = !!!NULL), "Only the operand's names are retained")
 })
@@ -507,13 +517,13 @@ test_that("ensym() unwraps quosures", {
   fn <- function(arg) ensym(arg)
   expect_identical(fn(!!quo(foo)), quote(foo))
   expect_identical(fn(!!quo("foo")), quote(foo))
-  expect_error(fn(!!quo(foo())), "Only strings can be converted to symbols")
+  expect_snapshot(err(fn(!!quo(foo()))))
 })
 
 test_that("ensyms() unwraps quosures", {
   fn <- function(...) ensyms(...)
   expect_identical(fn(!!!quos(foo, "bar")), exprs(foo, bar))
-  expect_error(fn(!!!quos(foo, bar())), "Only strings can be converted to symbols")
+  expect_snapshot(err(fn(!!!quos(foo, bar()))))
 })
 
 test_that("enquo0() and enquos0() capture arguments without injection", {
@@ -538,4 +548,136 @@ test_that("enquo0() and enquos0() don't rewrap quosures", {
   fn <- function(...) enquos0(...)
   quo <- local(quo(x))
   expect_equal(fn(!!quo), list(quo))
+})
+
+test_that("enquo() defuses numbered dots (#1137)", {
+  f <- function(arg) enquo(..1)
+  expect_error(
+    f(foo),
+    "'...' used in an incorrect context"
+  )
+
+  f <- function(...) enquo(..1)
+  expect_error(
+    f(),
+    "fewer than 1"
+  )
+
+  f <- function(...) enquo(..2)
+  expect_error(
+    f(1),
+    "fewer than 2"
+  )
+})
+
+test_that("enquos() defuses numbered dots (#1137)", {
+  f <- function(...) enquos(...)
+  g <- function(...) f(..1)
+  expect_equal(
+    g(foo),
+    quos(foo)
+  )
+
+  f <- function(...) enquos(...)
+  g <- function(...) f(..1, ..2)
+  h <- function(...) g(..1, ...)
+  expect_equal(
+    h(foo, bar),
+    quos(foo, foo)
+  )
+
+  g <- function(...) f(..1, ..3)
+  expect_equal(
+    h(foo, bar),
+    quos(foo, bar)
+  )
+
+  g <- function(...) f(..1, ..4)
+  expect_error(
+    h(foo, bar),
+    "fewer than 4 elements"
+  )
+})
+
+test_that("`defer()` does not crash with environments containing quosures (#1085)", {
+  f <- function() {
+    withr::defer(2)
+    dots <- quos(integer(1))
+    quo(c(!!!dots))
+  }
+  expect_no_error(f()) # No crash
+})
+
+test_that("auto-named expressions can be unique-repaired", {
+  dots_names <- function(...) {
+    dots <- enquos(...)
+    dots <- exprs_auto_name(dots, repair_auto = "unique")
+    names(dots)
+  }
+
+  expect_snapshot({
+    expect_equal(
+      dots_names(1, foo = 1, 1, foo = 2),
+      c("1...1", "foo", "1...3", "foo")
+    )
+
+    expect_equal(
+      dots_names(bar, foo = 1, bar, foo = 2),
+      c("bar...1", "foo", "bar...3", "foo")
+    )
+  })
+})
+
+test_that("can capture forced numbered dot", {
+  fn <- function(..., x = ..1) {
+    force(x)
+    enquo(x)
+  }
+  expect_equal(fn(1 + 1), quo(2))
+})
+
+test_that("`enexprs()` and variants support `.named = NULL` (#1223)", {
+  fn <- function(...) enexprs(..., .named = NULL)
+  expect_equal(fn(), list())
+  expect_equal(fn(1), list(1))
+  expect_equal(fn(x = 1), list(x = 1))
+
+  fn <- function(...) enquos(..., .named = NULL)
+  expect_equal(fn(), unname(quos()))
+  expect_equal(fn(1), unname(quos(1)))
+  expect_equal(fn(x = 1), quos(x = 1))
+})
+
+test_that("`.named = NULL` yields `NULL` names (#1505)", {
+  fn <- function() enquos(.named = NULL)
+  expect_null(names(fn()))
+
+  fn <- function(...) enquos(..., .named = NULL)
+  expect_null(names(fn()))
+  expect_null(names(fn(foo)))
+
+  expect_null(names(quos(.named = NULL)))
+  expect_null(names(quos(foo, .named = NULL)))
+})
+
+test_that("embraced empty arg are detected consistently (#1421)", {
+  fn_quos <- function(cond, ...) {
+    quos_it({{cond}}, ...)
+  }
+  fn_enquos <- function(cond, ...) {
+    enquos_it({{cond}}, ...)
+  }
+
+  quos_it <- function(..., .ignore_empty = "all") {
+    quos(..., .ignore_empty = .ignore_empty)
+  }
+  enquos_it <- function(..., .ignore_empty = "all") {
+    enquos(..., .ignore_empty = .ignore_empty)
+  }
+
+  expect_equal(fn_quos(), quos())
+  expect_equal(fn_enquos(), quos())
+
+  expect_equal(fn_quos(.ignore_empty = "trailing"), quos())
+  expect_equal(fn_enquos(.ignore_empty = "trailing"), quos())
 })

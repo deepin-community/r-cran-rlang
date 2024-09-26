@@ -113,7 +113,7 @@ is_interactive <- function() {
   if (!is_null(opt)) {
     if (!is_bool(opt)) {
       options(rlang_interactive = NULL)
-      abort("`rlang_interactive` must be a single `TRUE` of `FALSE`")
+      check_bool(opt, arg = "rlang_interactive")
     }
     return(opt)
   }
@@ -144,4 +144,23 @@ local_interactive <- function(value = TRUE, frame = caller_env()) {
 with_interactive <- function(expr, value = TRUE) {
   local_interactive(value)
   expr
+}
+
+report_in_progress <- function() {
+  if (knitr_in_progress()) {
+    return(TRUE)
+  }
+
+  if (is_true(peek_option("rstudio.notebook.executing"))) {
+    return(TRUE)
+  }
+
+  FALSE
+}
+knitr_in_progress <- function() {
+  is_true(peek_option("knitr.in.progress"))
+}
+
+peek_srcref <- function() {
+  .Call(ffi_peek_srcref)
 }
