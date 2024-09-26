@@ -6,6 +6,7 @@
 \alias{is_bare_atomic}
 \alias{is_bare_vector}
 \alias{is_bare_double}
+\alias{is_bare_complex}
 \alias{is_bare_integer}
 \alias{is_bare_numeric}
 \alias{is_bare_character}
@@ -22,6 +23,8 @@ is_bare_atomic(x, n = NULL)
 is_bare_vector(x, n = NULL)
 
 is_bare_double(x, n = NULL)
+
+is_bare_complex(x, n = NULL)
 
 is_bare_integer(x, n = NULL)
 
@@ -51,8 +54,9 @@ a data frame is a list, but not a bare list.
 \itemize{
 \item The predicates for vectors include the \code{n} argument for
 pattern-matching on the vector length.
-\item Like \code{\link[=is_atomic]{is_atomic()}} and unlike base R \code{is.atomic()},
-\code{is_bare_atomic()} does not return \code{TRUE} for \code{NULL}.
+\item Like \code{\link[=is_atomic]{is_atomic()}} and unlike base R \code{is.atomic()} for R < 4.4.0,
+\code{is_bare_atomic()} does not return \code{TRUE} for \code{NULL}. Starting in
+R 4.4.0, \code{is.atomic(NULL)} returns FALSE.
 \item Unlike base R \code{is.numeric()}, \code{is_bare_double()} only returns
 \code{TRUE} for floating point numbers.
 }

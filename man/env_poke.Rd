@@ -9,7 +9,7 @@ env_poke(env = caller_env(), nm, value, inherit = FALSE, create = !inherit)
 \arguments{
 \item{env}{An environment.}
 
-\item{nm}{Names of bindings. \code{nm} must be a single string.}
+\item{nm}{Name of binding, a string.}
 
 \item{value}{The value for a new binding.}
 
@@ -43,5 +43,6 @@ a binding in the global environment instead of the current
 environment when no existing binding is found in the parents.
 }
 \seealso{
-\code{\link[=env_bind]{env_bind()}} for binding multiple elements.
+\code{\link[=env_bind]{env_bind()}} for binding multiple elements. \code{\link[=env_cache]{env_cache()}}
+for a variant of \code{env_poke()} designed to cache values.
 }

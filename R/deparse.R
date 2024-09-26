@@ -1,4 +1,3 @@
-
 line_push <- function(line, text,
                       sticky = FALSE,
                       boundary = NULL,
@@ -8,12 +7,9 @@ line_push <- function(line, text,
   if (!length(line)) {
     return(text)
   }
-  if (!is_string(line)) {
-    abort("`line` must be a string or empty")
-  }
-  if (!is_string(text)) {
-    abort("`text` must be a string")
-  }
+  check_string(line)
+  check_string(text)
+
   width <- width %||% peek_option("width")
 
   if (!has_overflown(line, text, width, has_colour)) {
@@ -65,9 +61,13 @@ trim_leading_spaces <- function(line) {
 }
 
 new_lines <- function(width = peek_option("width"),
+                      max_elements = 5L,
                       deparser = sexp_deparse) {
   width <- width %||% 60L
-  stopifnot(is_integerish(width, n = 1))
+  stopifnot(
+    is_integerish(width, n = 1),
+    is_null(max_elements) || is_scalar_integerish(max_elements)
+  )
 
   r6lite(
     deparse = function(self, x) {
@@ -75,6 +75,7 @@ new_lines <- function(width = peek_option("width"),
     },
 
     width = width,
+    max_elements = max_elements,
     boundary = NULL,
     next_sticky = FALSE,
 
@@ -367,9 +368,30 @@ tight_op_deparse <- function(x, lines = new_lines()) {
 }
 
 unary_op_deparse <- function(x, lines = new_lines()) {
+  # Constructed call without argument
+  if (is_null(node_cdr(x))) {
+    return(call_deparse(x, lines))
+  }
+
   op <- as_string(node_car(x))
   lines$push(op)
   lines$deparse(node_cadr(x))
+  lines$get_lines()
+}
+unary_f_deparse <- function(x, lines = new_lines()) {
+  # Constructed call without argument
+  if (is_null(node_cdr(x))) {
+    return(call_deparse(x, lines))
+  }
+
+  lines$push("~")
+
+  rhs <- node_cadr(x)
+  if (!is_symbol(rhs) && !is_syntactic_literal(rhs)) {
+    lines$push(" ")
+  }
+  lines$deparse(rhs)
+
   lines$get_lines()
 }
 
@@ -397,6 +419,7 @@ parens_deparse <- function(x, lines = new_lines()) {
 
   lines$get_lines()
 }
+
 braces_deparse <- function(x, lines = new_lines()) {
   lines$push("{")
   lines$increase_indent()
@@ -422,8 +445,22 @@ braces_deparse <- function(x, lines = new_lines()) {
   lines$get_lines()
 }
 
+embrace_deparse <- function(x, lines = new_lines()) {
+  lines$push("{{ ")
+  lines$increase_indent()
+
+  sym <- node_cadr(node_cadr(x))
+  lines$deparse(sym)
+
+  lines$push(" }}")
+  lines$decrease_indent()
+
+  lines$get_lines()
+}
+
+
 sym_deparse <- function(x, lines = new_lines()) {
-  str <- as_string(x)
+  str <- encodeString(as_string(x))
 
   if (needs_backticks(str)) {
     str <- sprintf("`%s`", str)
@@ -533,7 +570,8 @@ call_delimited_type <- function(call) {
     `[` = ,
     `[[` = ,
     `(` = ,
-    `{` =
+    `{` = ,
+    `{{` =
       "none",
     abort("Internal error: Unexpected operator while deparsing")
   )
@@ -576,8 +614,8 @@ op_deparse <- function(op, x, lines) {
     `@` = unspaced_op_deparse,
     `::` = ,
     `:::` = tight_op_deparse,
+    `~unary` = unary_f_deparse,
     `?unary` = ,
-    `~unary` = ,
     `!` = ,
     `!!!` = ,
     `!!` = ,
@@ -587,6 +625,7 @@ op_deparse <- function(op, x, lines) {
     `[[` = brackets2_deparse,
     `(` = parens_deparse,
     `{` = braces_deparse,
+    `{{` = embrace_deparse,
     abort("Internal error: Unexpected operator while deparsing")
   )
 
@@ -626,16 +665,18 @@ atom_deparse <- function(x, lines = new_lines()) {
     return(NULL)
   }
 
-  truncated <- length(x) > 5L
+  max_elements <- lines$max_elements
+
+  truncated <- !is.null(max_elements) && length(x) > max_elements
   if (truncated) {
-    x <- .subset(x, 1:5)
+    x <- .subset(x, seq_len(max_elements))
   }
 
   lines$push(paste0("<", rlang_type_sum(x), ": "))
   lines$increase_indent()
 
   elts <- atom_elements(x)
-  nms <- names2(x)
+  nms <- deparsed_names(x)
 
   n <- length(elts)
   for (i in seq_len(n)) {
@@ -647,13 +688,12 @@ atom_deparse <- function(x, lines = new_lines()) {
 
     lines$push(elts[[i]])
 
-    if (i != n) {
+    if (i < n || truncated) {
       lines$push_sticky(", ")
     }
   }
 
   if (truncated) {
-    lines$push_sticky(", ")
     lines$push("...")
   }
 
@@ -669,15 +709,16 @@ list_deparse <- function(x, lines = new_lines()) {
     return(lines$get_lines())
   }
 
+  max_elements <- lines$max_elements
+
   lines$push(paste0("<list: "))
   lines$increase_indent()
-
-  truncated <- length(x) > 5L
+  truncated <- !is.null(max_elements) && length(x) > max_elements
   if (truncated) {
-    x <- .subset(x, 1:5)
+    x <- .subset(x, seq_len(max_elements))
   }
 
-  nms <- names2(x)
+  nms <- deparsed_names(x)
   n <- length(x)
 
   for (i in seq_len(n)) {
@@ -689,13 +730,12 @@ list_deparse <- function(x, lines = new_lines()) {
 
     lines$deparse(x[[i]])
 
-    if (i != n) {
+    if (i < n || truncated) {
       lines$push_sticky(", ")
     }
   }
 
   if (truncated) {
-    lines$push_sticky(", ")
     lines$push("...")
   }
 
@@ -805,6 +845,10 @@ reserved_words <- c(
   "break"
 )
 
+deparsed_names <- function(x) {
+  encodeString(names2(x))
+}
+
 #' Create a default name for an R object
 #'
 #' @description
@@ -819,7 +863,7 @@ reserved_words <- c(
 #'   labelling is the first step before name repair.
 #'
 #' See also [as_name()] for transforming symbols back to a
-#' string. Unlike `as_label()`, `as_string()` is a well defined
+#' string. Unlike `as_label()`, `as_name()` is a well defined
 #' operation that guarantees the roundtrip symbol -> string ->
 #' symbol.
 #'
@@ -827,8 +871,8 @@ reserved_words <- c(
 #' dealing with (a call, a symbol, an unquoted constant), use
 #' `as_label()` and make no assumption about the resulting string. If
 #' you know you have a symbol and need the name of the object it
-#' refers to, use [as_string()]. For instance, use `as_label()` with
-#' objects captured with `enquo()` and `as_string()` with symbols
+#' refers to, use [as_name()]. For instance, use `as_label()` with
+#' objects captured with `enquo()` and `as_name()` with symbols
 #' captured with `ensym()`.
 #'
 #' @param x An object.
@@ -842,22 +886,19 @@ reserved_words <- c(
 #' * Other constants are represented by their type, such as `<dbl>`
 #'   or `<data.frame>`.
 #'
-#' Note that simple symbols should generally be transformed to strings
-#' with [as_name()]. Labelling is not a well defined operation and
-#' no assumption should be made about how the label is created. On the
-#' other hand, `as_name()` only works with symbols and is a well
-#' defined, deterministic operation.
-#'
 #' @seealso [as_name()] for transforming symbols back to a string
 #'   deterministically.
+#'
 #' @examples
 #' # as_label() is useful with quoted expressions:
 #' as_label(expr(foo(bar)))
+#'
 #' as_label(expr(foobar))
 #'
 #' # It works with any R object. This is also useful for quoted
 #' # arguments because the user might unquote constant objects:
 #' as_label(1:3)
+#'
 #' as_label(base::list)
 #' @export
 as_label <- function(x) {
@@ -867,17 +908,21 @@ as_label <- function(x) {
     return("<empty>")
   }
 
-  switch(typeof(x),
+  switch(
+    typeof(x),
     NULL = "NULL",
     symbol = as_string(x),
     language = {
       if (is_data_pronoun(x)) {
-        data_pronoun_name(x) %||% "<unknown>"
-      } else {
-        name <- deparse_one(x)
-        name <- gsub("\n.*$", "...", name)
-        name
+        return(data_pronoun_name(x) %||% "<unknown>")
       }
+      if (use_as_label_infix() && infix_overflows(x)) {
+        return(as_label_infix(x))
+      }
+
+      name <- deparse_one(x)
+      name <- gsub("\n.*$", "...", name)
+      name
     },
     if (is_bare_atomic(x, n = 1)) {
       name <- expr_text(x)
@@ -889,13 +934,62 @@ as_label <- function(x) {
   )
 }
 
+# Work around a slowdown caused by `infix_overflows()`
+# https://github.com/tidyverse/dplyr/issues/6674
+# https://github.com/tidyverse/dplyr/issues/6681
+use_as_label_infix <- function() {
+  !is_false(peek_option("rlang:::use_as_label_infix"))
+}
+
+infix_overflows <- function(x) {
+  call_print_type(x) %in% c("infix", "subset") &&
+    length(expr_deparse(x, width = 60)) > 1
+}
+as_label_infix <- function(x) {
+  # Shorten the expression if we're too long. Preserve the left side
+  # if possible.
+  infix_n <- nchar_infix(x)
+  dots_n <- 3
+
+  left_width <- 60 - infix_n - dots_n
+  left <- expr_deparse(x[[2]], width = left_width)
+  if (length(left) > 1 || nchar(left) > left_width) {
+    x[[2]] <- quote(...)
+    left_n <- dots_n
+  } else {
+    left_n <- nchar(left)
+  }
+
+  right_width <- 60 - left_n - infix_n
+  right <- expr_deparse(x[[3]], width = right_width)
+  if (length(right) > 1 || nchar(right) > right_width) {
+    x[[3]] <- quote(...)
+  }
+
+  out <- expr_deparse(x, width = 60)
+
+  # In case something went wrong
+  if (length(out) > 1) {
+    if (testing()) {
+      abort("Deparsed `out` can't be multiline.", .internal = TRUE)
+    }
+    paste(out[[1]], "...")
+  } else {
+    out
+  }
+}
+nchar_infix <- function(x) {
+  x[c(2, 3)] <- 1
+  nchar(expr_deparse(x)) - 2
+}
+
 #' Extract names from symbols
 #'
 #' @description
 #'
 #' `as_name()` converts [symbols][sym] to character strings. The
-#' conversion is deterministic. That is, the roundtrip symbol -> name
-#' -> symbol always gets the same result.
+#' conversion is deterministic. That is, the roundtrip `symbol -> name
+#' -> symbol` always gives the same result.
 #'
 #' - Use `as_name()` when you need to transform a symbol to a string
 #'   to _refer_ to an object by its name.
@@ -903,22 +997,20 @@ as_label <- function(x) {
 #' - Use [as_label()] when you need to transform any kind of object to
 #'   a string to _represent_ that object with a short description.
 #'
-#' Expect `as_name()` to gain
-#' [name-repairing](https://principles.tidyverse.org/names-attribute.html#minimal-unique-universal)
-#' features in the future.
-#'
-#' Note that `rlang::as_name()` is the _opposite_ of
-#' [base::as.name()]. If you're writing base R code, we recommend
-#' using [base::as.symbol()] which is an alias of `as.name()` that
-#' follows a more modern terminology (R types instead of S modes).
-#'
 #' @param x A string or symbol, possibly wrapped in a [quosure][quosure].
 #'   If a string, the attributes are removed, if any.
 #' @return A character vector of length 1.
 #'
+#' @details
+#' `rlang::as_name()` is the _opposite_ of [base::as.name()]. If
+#' you're writing base R code, we recommend using [base::as.symbol()]
+#' which is an alias of `as.name()` that follows a more modern
+#' terminology (R types instead of S modes).
+#'
 #' @seealso [as_label()] for converting any object to a single string
 #'   suitable as a label. [as_string()] for a lower-level version that
 #'   doesn't unwrap quosures.
+#'
 #' @examples
 #' # Let's create some symbols:
 #' foo <- quote(foo)
@@ -939,4 +1031,44 @@ as_name <- function(x) {
     x <- quo_get_expr(x)
   }
   as_string(x)
+}
+
+call_deparse_highlight <- function(call, arg) {
+  stopifnot(is_call(call))
+
+  if (!is_string(arg)) {
+    arg <- NULL
+  }
+
+  local_error_highlight()
+
+  if (!is_call_simple(call) || call_print_fine_type(call) != "call") {
+    return(format_code_unquoted(as_label(call)))
+  }
+
+  names <- names(call)
+  if (!is_null(arg) && arg %in% names) {
+    # Simply remove other arguments for now
+    call <- call[c(1, match(arg, names))]
+
+    args_list <- sprintf("%s = %s", arg, as_label(call[[arg]]))
+    args_list <- format_arg_unquoted(args_list)
+  } else {
+    args_list <- call
+    args_list[[1]] <- quote(F)
+    args_list <- as_label(args_list)
+    args_list <- substring(args_list, 3, nchar(args_list) - 1)
+  }
+
+  head <- call[[1]]
+  if (is_symbol(head)) {
+    fn <- sym_text(head)
+  } else {
+    fn <- as_label(head)
+  }
+
+  open <- format_code_unquoted(sprintf("%s(", fn))
+  close <- format_code_unquoted(")")
+
+  paste0(open, args_list, close)
 }

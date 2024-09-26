@@ -1,5 +1,17 @@
 Tests: run-unit-test
-Depends: @, r-cran-testthat (>= 2.3.0), r-cran-rmarkdown
+Depends: @,
+         r-cran-cli (>= 3.1.0),
+        r-cran-covr,
+        r-cran-crayon,
+        r-cran-fs,
+        r-cran-glue,
+        r-cran-knitr,
+        r-cran-magrittr,
+        r-cran-pillar,
+        r-cran-rmarkdown,
+        r-cran-testthat (>= 3.0.0),
+        r-cran-tibble,
+        r-cran-usethis,
+        r-cran-vctrs (>= 0.2.3),
+        r-cran-withr
 Restrictions: allow-stderr
-
-

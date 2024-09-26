@@ -4,7 +4,7 @@
 \alias{list2}
 \alias{ll}
 \alias{dots_list}
-\title{Collect dots in a list}
+\title{Collect dynamic dots in a list}
 \usage{
 list2(...)
 
@@ -21,9 +21,12 @@ dots_list(
 \item{...}{Arguments to collect in a list. These dots are
 \link[=dyn-dots]{dynamic}.}
 
-\item{.named}{Whether to ensure all dots are named. Unnamed
-elements are processed with \code{\link[=as_label]{as_label()}} to build a default
-name.}
+\item{.named}{If \code{TRUE}, unnamed inputs are automatically named
+with \code{\link[=as_label]{as_label()}}. This is equivalent to applying
+\code{\link[=exprs_auto_name]{exprs_auto_name()}} on the result. If \code{FALSE}, unnamed elements
+are left as is and, if fully unnamed, the list is given minimal
+names (a vector of \code{""}). If \code{NULL}, fully unnamed results are
+left with \code{NULL} names.}
 
 \item{.ignore_empty}{Whether to ignore empty arguments. Can be one
 of \code{"trailing"}, \code{"none"}, \code{"all"}. If \code{"trailing"}, only the
@@ -40,10 +43,9 @@ default, \code{"keep"}, preserves these arguments. Set \code{.homonyms} to
 the last occurrences, and to \code{"error"} to raise an informative
 error and indicate what arguments have duplicated names.}
 
-\item{.check_assign}{Whether to check for \verb{<-} calls passed in
-dots. When \code{TRUE} and a \verb{<-} call is detected, a warning is
-issued to advise users to use \code{=} if they meant to match a
-function parameter, or wrap the \verb{<-} call in braces otherwise.
+\item{.check_assign}{Whether to check for \verb{<-} calls. When \code{TRUE} a
+warning recommends users to use \code{=} if they meant to match a
+function parameter or wrap the \verb{<-} call in curly braces otherwise.
 This ensures assignments are explicit.}
 }
 \value{
@@ -54,6 +56,11 @@ A list containing the \code{...} inputs.
 features, collectively called \link[=dyn-dots]{dynamic dots}. While
 \code{list2()} hard-code these features, \code{dots_list()} is a lower-level
 version that offers more control.
+}
+\details{
+For historical reasons, \code{dots_list()} creates a named list by
+default. By comparison \code{list2()} implements the preferred behaviour
+of only creating a names vector when a name is supplied.
 }
 \examples{
 # Let's create a function that takes a variable number of arguments:
@@ -88,19 +95,22 @@ fn("wrong!", data = letters)  # exact matching of `data`
 fn("wrong!", dat = letters)   # partial matching of `data`
 fn(some_data, !!!list(data = letters))  # no matching
 
+# Empty trailing arguments are allowed:
+list2(1, )
 
-# Empty arguments trigger an error by default:
-try(fn(, ))
+# But non-trailing empty arguments cause an error:
+try(list2(1, , ))
 
-# You can choose to preserve empty arguments instead:
+# Use the more configurable `dots_list()` function to preserve all
+# empty arguments:
 list3 <- function(...) dots_list(..., .preserve_empty = TRUE)
 
 # Note how the last empty argument is still ignored because
 # `.ignore_empty` defaults to "trailing":
-list3(, )
+list3(1, , )
 
 # The list with preserved empty arguments is equivalent to:
-list(missing_arg())
+list(1, missing_arg())
 
 
 # Arguments with duplicated names are kept by default:

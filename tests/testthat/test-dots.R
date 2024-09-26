@@ -13,17 +13,23 @@ test_that("exprs() captures empty arguments", {
 
 test_that("dots are always named", {
   expect_named(dots_list("foo"), "")
-  expect_named(dots_splice("foo", list("bar")), c("", ""))
   expect_named(exprs(foo, bar), c("", ""))
+
+  local_lifecycle_silence()
+  expect_named(dots_splice("foo", list("bar")), c("", ""))
 })
 
 test_that("dots can be spliced", {
-  spliced_dots <- dots_values(!!! list(letters))
+  local_lifecycle_silence()
+
+  spliced_dots <- dots_values(!!!list(letters))
   expect_identical(spliced_dots, list(splice(list(letters))))
-  expect_identical(flatten(dots_values(!!! list(letters))), list(letters))
-  expect_identical(list2(!!! list(letters)), list(letters))
+  expect_identical(list2(!!!list(letters)), list(letters))
   wrapper <- function(...) list2(...)
-  expect_identical(wrapper(!!! list(letters)), list(letters))
+  expect_identical(wrapper(!!!list(letters)), list(letters))
+
+  local_lifecycle_silence()
+  expect_identical(flatten(dots_values(!!! list(letters))), list(letters))
 })
 
 test_that("interpolation by value does not guard formulas", {
@@ -60,8 +66,10 @@ test_that("dots_values() handles forced dots", {
 })
 
 test_that("empty arguments trigger meaningful error", {
-  expect_error(list2(1, , 3), "Argument 2 is empty")
-  expect_error(dots_list(1, , 3), "Argument 2 is empty")
+  expect_snapshot({
+    (expect_error(list2(1, , 3), "empty"))
+    (expect_error(dots_list(1, , 3), "empty"))
+  })
 })
 
 test_that("cleans empty arguments", {
@@ -72,7 +80,7 @@ test_that("cleans empty arguments", {
 })
 
 test_that("doesn't clean named empty argument arguments", {
-  expect_error(dots_list(1, a = ), "Argument 2 is empty")
+  expect_error(dots_list(1, a = ), "empty")
   expect_identical(exprs(1, a = ), alist(1, a = ))
   expect_identical(exprs(1, a = , b = , , .ignore_empty = "all"), alist(1, a = , b = ))
 })
@@ -92,20 +100,16 @@ test_that("can splice NULL value", {
 })
 
 test_that("dots_splice() flattens lists", {
+  local_lifecycle_silence()
   expect_identical(dots_splice(list("a", list("b"), "c"), "d", list("e")), named_list("a", list("b"), "c", "d", "e"))
   expect_identical(dots_splice(list("a"), !!! list("b"), list("c"), "d"), named_list("a", "b", "c", "d"))
   expect_identical(dots_splice(list("a"), splice(list("b")), list("c"), "d"), named_list("a", "b", "c", "d"))
 })
 
 test_that("dots_splice() doesn't squash S3 objects", {
+  local_lifecycle_silence()
   s <- structure(list(v1 = 1, v2 = 2), class = "foo")
   expect_identical(dots_splice(s, s), named_list(s, s))
-})
-
-test_that("dots_node() doesn't trim attributes from arguments", {
-  x <- ~foo
-  dots <- eval(expr(dots_node(!! x)))
-  expect_identical(node_car(dots), x)
 })
 
 test_that("dots_split() splits named and unnamed dots", {
@@ -237,10 +241,11 @@ test_that("`.homonyms` = 'error' fails with homonyms", {
   expect_identical(list_error(1, 2), named_list(1, 2))
   expect_identical(list_error(a = 1, b = 2), list(a = 1, b = 2))
 
-  expect_error(list_error(1, a = 2, a = 3), "multiple arguments named `a` at positions 2 and 3")
-
-  expect_error(list_error(1, a = 2, b = 3, 4, b = 5, b = 6, 7, a = 8), "\\* Multiple arguments named `a` at positions 2 and 8")
-  expect_error(list_error(1, a = 2, b = 3, 4, b = 5, b = 6, 7, a = 8), "\\* Multiple arguments named `b` at positions 3, 5, and 6")
+  expect_snapshot({
+    (expect_error(list_error(1, a = 2, a = 3)))
+    (expect_error(list_error(1, a = 2, b = 3, 4, b = 5, b = 6, 7, a = 8)))
+    (expect_error(list_error(1, a = 2, b = 3, 4, b = 5, b = 6, 7, a = 8)))
+  })
 })
 
 test_that("`.homonyms` works with spliced arguments", {
@@ -260,10 +265,13 @@ test_that("can mix `!!!` and splice boxes", {
 
 test_that("list2() and dots_values() support splice boxes", {
   expect_identical(list2(1, splice(c("foo", "bar")), 3), list(1, "foo", "bar", 3))
+
+  local_lifecycle_silence()
   expect_identical(dots_values(1, splice(c("foo", "bar")), 3), list(1, splice(list("foo", "bar")), 3))
 })
 
 test_that("dots_values() doesn't splice", {
+  local_lifecycle_silence()
   expect_identical_(dots_values(!!!c(1:3)), list(splice(as.list(1:3))))
   expect_identical_(dots_values(!!!list("foo", "bar")), list(splice(list("foo", "bar"))))
 })
@@ -305,4 +313,78 @@ test_that("dots_list() optionally auto-names arguments (#957)", {
     dots_list(!!!list(1:3, 1:3), .named = TRUE),
     list(`<int>` = 1:3, `<int>` = 1:3)
   )
+})
+
+test_that("`.ignore_empty` is matched", {
+  # Tests the `r_arg_match()` library function
+  expect_snapshot({
+    (expect_error(dots_list(.ignore_empty = "t")))
+
+    foo <- function() dots_list(.ignore_empty = "t")
+    (expect_error(foo()))
+  })
+})
+
+# Suboptimal but not worth fixing the UI
+test_that("`.named` can be `NULL` (default names) or `FALSE` (minimal names)", {
+  expect_equal(
+    dots_list(.named = FALSE),
+    set_names(list(), "")
+  )
+  expect_equal(
+    exprs(.named = FALSE),
+    set_names(list(), "")
+  )
+
+  expect_equal(
+    dots_list(.named = NULL),
+    list()
+  )
+  expect_equal(
+    exprs(.named = NULL),
+    list()
+  )
+})
+
+test_that("`.homonyms` error is thrown", {
+  f <- function() dots_list(a = 1, a = 2, .homonyms = "error")
+  expect_snapshot((expect_error(f())))
+})
+
+test_that("`list2(!!!x)` returns `x` without duplication", {
+  expect_snapshot({
+    x <- as.list(1:100)
+    with_memory_prof(out <- list2(!!!x))
+    expect_equal(out, as.list(x))
+
+    x <- 1:100 + 0L
+    with_memory_prof(out <- list2(!!!x))
+    expect_equal(out, as.list(x))
+  })
+})
+
+test_that("list2(...) doesn't copy forced promises (#1491)", {
+  fn <- function(...) {
+    list(...)
+    with_memory_prof(list2(...))
+  }
+
+  x <- seq_len(1e4) + 0
+
+  expect_snapshot({
+    fn(x, x, x, x, x, x)
+  })
+})
+
+test_that("names are not mutated after splice box early exit", {
+  xs <- list(1)
+
+  dots_list(!!!xs, .named = FALSE)
+  expect_equal(names(xs), NULL)
+
+  dots_list(!!!xs, .named = TRUE)
+  expect_equal(names(xs), NULL)
+
+  dots_list(!!!xs, .named = NULL)
+  expect_equal(names(xs), NULL)
 })

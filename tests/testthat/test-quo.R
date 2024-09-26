@@ -196,7 +196,7 @@ test_that("as_quosures() auto-names if requested", {
 })
 
 test_that("quosures class has subset assign methods", {
-  local_options(lifecycle_verbose_soft_deprecation = TRUE)
+  local_options(lifecycle_verbosity = "warning")
 
   x <- quos(1, 2)
 
@@ -227,9 +227,12 @@ test_that("can remove quosures by assigning NULL", {
 })
 
 test_that("can't cast a quosure to base types (#523)", {
-  local_options(lifecycle_verbose_soft_deprecation = TRUE)
-  expect_warning(as.character(quo(foo)), "`as.character\\(\\)` on a quosure")
-  expect_identical(as.character(quo(foo)), c("~", "foo"))
+  expect_deprecated(
+    out <- as.character(quo(foo)),
+    "on a quosure",
+    fixed = TRUE
+  )
+  expect_identical(out, c("~", "foo"))
 })
 
 test_that("quosures fail with common operations (#478, tidyverse/dplyr#3476)", {
@@ -265,7 +268,7 @@ test_that("new_quosure() checks input", {
 })
 
 test_that("as_string(quo) produces informative error message", {
-  expect_error(as_string(quo(foo)), "a `quosure/formula` object to a string")
+  expect_error(as_string(quo(foo)), "a <quosure> object to a string")
 })
 
 test_that("`[` properly reconstructs quosure lists", {
@@ -277,6 +280,50 @@ test_that("quosure lists are considered vectors", {
   skip_if_not_installed("vctrs", "0.2.3")
   expect_true(vctrs::vec_is(quos()))
   expect_identical(vctrs::vec_slice(quos(1, 2, 3), 2:3), quos(2, 3))
+})
+
+test_that("quosure attributes are cloned (#1142)", {
+  x <- quos()
+  attr(x, "foo") <- TRUE
+  y <- quos()
+  expect_true(setequal(names(attributes(y)), c("names", "class")))
+})
+
+test_that("quo_squash() supports nested missing args", {
+  expect_equal(
+    quo_squash(expr(foo(!!quo()))),
+    quote(foo(, ))[1:2]
+  )
+  expect_equal(
+    quo_squash(expr(foo(bar(!!quo(), !!quo())))),
+    quote(foo(bar(, )))
+  )
+
+  expect_equal(quo_squash(missing_arg()), missing_arg())
+  expect_equal(quo_squash(quo()), missing_arg())
+})
+
+test_that("quo_squash() handles quosures in function positions", {
+  expr <- call2(quo(`==`), 1, 2)
+  expect_equal(quo_squash(expr), quote(1 == 2))
+})
+
+test_that("quosures can be concatenated with lists of quosures (#1446)", {
+  expect_equal(
+    c(quo(1), quos(2)),
+    quos(1, 2)
+  )
+
+  expect_equal(
+    c(quos(1), quo(2)),
+    quos(1, 2)
+  )
+})
+
+test_that("quo_squash() handles nested quosured quosures", {
+  q <- new_quosure(quo(1))
+  expect_equal(quo_squash(q), 1)
+  expect_equal(quo_squash(quo(foo(!!q))), quote(foo(1)))
 })
 
 

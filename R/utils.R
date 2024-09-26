@@ -1,75 +1,33 @@
+deprecated <- function() missing_arg()
 
-substitute_ <- function(x, env) {
-  if (identical(env, globalenv())) {
-    env <- as.list(env)
+abort_coercion <- function(x,
+                           to_type,
+                           x_type = NULL,
+                           arg = NULL,
+                           call = caller_env()) {
+  if (is_null(x_type)) {
+    if (is_vector(x)) {
+      x_type <- vec_type_friendly(x)
+    } else {
+      x_type <- obj_type_friendly(x)
+    }
   }
 
-  call <- substitute(substitute(x, env), list(x = x))
-  eval_bare(call)
+  if (is_null(arg)) {
+    msg <- sprintf("Can't convert %s to %s.", x_type, to_type)
+  } else {
+    arg <- format_arg(arg)
+    msg <- sprintf("Can't convert %s, %s, to %s.", arg, x_type, to_type)
+  }
+
+  abort(msg, call = call)
 }
 
-drop_last <- function(x) {
-  x[-length(x)]
-}
-drop_first <- function(x) {
-  x[-1]
-}
 set_names2 <- function(x, nms = names2(x)) {
   empty <- nms == ""
   nms[empty] <- x[empty]
   names(x) <- nms
   x
-}
-
-imap <- function(.x, .f, ...) {
-  idx <- names(.x) %||% seq_along(.x)
-  out <- Map(.f, idx, .x, ...)
-  names(out) <- names(.x)
-  out
-}
-imap_chr <- function(.x, .f, ...) {
-  as.vector(imap(.x, .f, ...), "character")
-}
-
-map_around <- function(.x, .neighbour = c("right", "left"), .f, ...) {
-  where <- arg_match(.neighbour)
-  n <- length(.x)
-  out <- vector("list", n)
-
-  if (n == 0) {
-    return(.x)
-  }
-
-  if (n == 1) {
-    out[[1]] <- .f(.x[[1]], missing_arg(), ...)
-    return(out)
-  }
-
-  if (n > 1 && where == "right") {
-    neighbours <- .x[seq(2, n)]
-    idx <- seq_len(n - 1)
-    out[idx] <- Map(.f, .x[idx], neighbours, ...)
-    out[[n]] <- .f(.x[[n]], missing_arg(), ...)
-    return(out)
-  }
-
-  if (n > 1 && where == "left") {
-    neighbours <- .x[seq(1, n - 1)]
-    idx <- seq(2, n)
-    out[idx] <- Map(.f, .x[idx], neighbours, ...)
-    out[[1]] <- .f(.x[[1]], missing_arg(), ...)
-    return(out)
-  }
-
-  stop("unimplemented")
-}
-
-discard_unnamed <- function(x) {
-  if (is_environment(x)) {
-    x
-  } else {
-    discard(x, names2(x) == "")
-  }
 }
 
 cat_line <- function(..., .trailing = TRUE, file = "") {
@@ -85,38 +43,20 @@ paste_line <- function(..., .trailing = FALSE) {
   }
 }
 
-has_crayon <- function() {
-  is_installed("crayon") && crayon::has_color()
-}
+open_red     <- function() if (has_ansi()) open_style("red")
+open_blue    <- function() if (has_ansi()) open_style("blue")
+open_green   <- function() if (has_ansi()) open_style("green")
+open_yellow  <- function() if (has_ansi()) open_style("yellow")
+open_magenta <- function() if (has_ansi()) open_style("magenta")
+open_cyan    <- function() if (has_ansi()) open_style("cyan")
+open_bold    <- function() if (has_ansi()) open_style("bold")
+close_colour <- function() if (has_ansi()) "\u001b[39m"
+close_italic <- function() if (has_ansi()) "\u001b[23m"
+close_bold   <- function() if (has_ansi()) close_style("bold")
 
-red       <- function(x) if (has_crayon()) crayon::red(x)       else x
-blue      <- function(x) if (has_crayon()) crayon::blue(x)      else x
-green     <- function(x) if (has_crayon()) crayon::green(x)     else x
-yellow    <- function(x) if (has_crayon()) crayon::yellow(x)    else x
-magenta   <- function(x) if (has_crayon()) crayon::magenta(x)   else x
-cyan      <- function(x) if (has_crayon()) crayon::cyan(x)      else x
-blurred   <- function(x) if (has_crayon()) crayon::blurred(x)   else x
-silver    <- function(x) if (has_crayon()) crayon::silver(x)    else x
-bold      <- function(x) if (has_crayon()) crayon::bold(x)      else x
-italic    <- function(x) if (has_crayon()) crayon::italic(x)    else x
-underline <- function(x) if (has_crayon()) crayon::underline(x) else x
-
-open_red     <- function() if (has_crayon()) open_style("red")
-open_blue    <- function() if (has_crayon()) open_style("blue")
-open_green   <- function() if (has_crayon()) open_style("green")
-open_yellow  <- function() if (has_crayon()) open_style("yellow")
-open_magenta <- function() if (has_crayon()) open_style("magenta")
-open_cyan    <- function() if (has_crayon()) open_style("cyan")
-close_colour <- function() if (has_crayon()) "\u001b[39m"
-close_italic <- function() if (has_crayon()) "\u001b[23m"
-
-open_yellow_italic   <- function() if (has_crayon()) "\u001b[33m\u001b[3m"
-open_blurred_italic  <- function() if (has_crayon()) "\u001b[2m\u001b[3m"
-close_blurred_italic <- function() if (has_crayon()) "\u001b[23m\u001b[22m"
-
-bullet <- function(x) {
-  paste0(bold(silver("* ")), x)
-}
+open_yellow_italic   <- function() if (has_ansi()) "\u001b[33m\u001b[3m"
+open_blurred_italic  <- function() if (has_ansi()) "\u001b[2m\u001b[3m"
+close_blurred_italic <- function() if (has_ansi()) "\u001b[23m\u001b[22m"
 
 
 open_style <- function(style) {
@@ -200,12 +140,6 @@ pluralise <- function(n, singular, plural) {
     plural
   }
 }
-pluralise_along <- function(x, singular, plural) {
-  pluralise(length(x), singular, plural)
-}
-pluralise_n <- function(n, singular, plural) {
-  pluralise(n, singular, plural)
-}
 
 pad_spaces <- function(x, left = TRUE) {
   widths <- nchar(x)
@@ -218,13 +152,19 @@ pad_spaces <- function(x, left = TRUE) {
   }
 }
 
-info <- function() {
-  i <- if (is_installed("cli")) cli::symbol$info else "i"
-  blue(i)
-}
-cross <- function() {
-  x <- if (is_installed("cli")) cli::symbol$cross else "x"
-  red(x)
+# Import symbols from cli if available
+on_load({
+  has_cli <- is_installed("cli")
+  has_cli_format <- is_installed("cli", version = "3.0.0")
+  has_cli_start_app <- is_installed("cli", version = "2.0.0")
+})
+
+style_dim_soft <- function(x) {
+  if (cli::num_ansi_colors() >= 256) {
+    crayon::make_style(grDevices::grey(0.6), colors =  256)(x)
+  } else {
+    col_silver(x)
+  }
 }
 
 strip_trailing_newline <- function(x) {
@@ -237,6 +177,11 @@ strip_trailing_newline <- function(x) {
 }
 
 unstructure <- function(x) {
+  attributes(x) <- NULL
+  x
+}
+
+vec_unstructure <- function(x) {
   out <- x
   attributes(out) <- NULL
 
@@ -246,20 +191,31 @@ unstructure <- function(x) {
   out
 }
 
-cli_rule <- function() {
-  if (is_installed("cli")) {
-    cli::rule()
-  } else {
-    strrep("-", peek_option("width") %||% 60L)
+stop_internal <- function(message, ..., call = caller_env(2)) {
+  abort(message, ..., call = call, .internal = TRUE)
+}
+
+stop_internal_c_lib <- function(file, line, call, message, frame) {
+  if (nzchar(file)) {
+    message <- c(
+      message,
+      "i" = sprintf(
+        "In file %s at line %d.",
+        format_file(file),
+        line
+      ))
   }
-}
+  if (!is_installed("winch") && is_interactive()) {
+    message <- c(
+      message,
+      "i" = sprintf(
+        "Install the %s package to get additional debugging info the next time you get this error.",
+        format_pkg("winch")
+      )
+    )
+  }
 
-split_lines <- function(x) {
-  strsplit(x, "\n", fixed = TRUE)[[1]]
-}
-
-stop_internal <- function(fn, msg) {
-  abort(sprintf("Internal error in `%s()`: %s"), fn, msg)
+  abort(message, call = call, .internal = TRUE, .frame = frame)
 }
 
 with_srcref <- function(src, env = caller_env(), file = NULL) {
@@ -268,4 +224,146 @@ with_srcref <- function(src, env = caller_env(), file = NULL) {
 
   writeLines(src, file)
   source(file, local = env, keep.source = TRUE)
+}
+
+chr_has_curly <- function(x) {
+  .Call(ffi_chr_has_curly, x)
+}
+
+
+new_stack <- function() {
+  stack <- new_dyn_vector("list", 100)
+
+  push <- function(...) {
+    for (obj in list2(...)) {
+      dyn_push_back(stack, maybe_missing(obj))
+    }
+  }
+
+  # Can be used as a coro generator
+  pop <- function() {
+    if (dyn_count(stack)) {
+      dyn_pop_back(stack)
+    } else {
+      exhausted()
+    }
+  }
+
+  new_environment(list(
+    push = push,
+    pop = pop
+  ))
+}
+
+exhausted <- function() as.symbol(".__exhausted__.")
+is_exhausted <- function(x) identical(x, exhausted())
+
+path_trim_prefix <- function(path, n) {
+  split <- strsplit(path, "/")[[1]]
+  n_split <- length(split)
+
+  if (n_split <= n) {
+    path
+  } else {
+    paste(split[seq2(n_split - n + 1, n_split)], collapse = "/")
+  }
+}
+
+browser <- function(...,
+                    skipCalls = 0,
+                    frame = parent.frame()) {
+  if (!identical(stdout(), getConnection(1))) {
+    sink(getConnection(1))
+    withr::defer(sink(), envir = frame)
+  }
+
+  # Calling `browser()` on exit avoids RStudio displaying the
+  # `browser2()` location. We still need one `n` to get to the
+  # expected place. Ideally `skipCalls` would not skip but exit the
+  # contexts.
+  on.exit(base::browser(..., skipCalls = skipCalls + 1))
+}
+
+df_print <- function(x, ...) {
+  class(x) <- c("tbl", "data.frame")
+  print(x, ...)
+  invisible(x)
+}
+
+is_testing <- function() {
+  identical(Sys.getenv("TESTTHAT"), "true")
+}
+
+glue_escape <- function(x) {
+  gsub("\\}", "}}", gsub("\\{", "{{", x))
+}
+
+detect_run_starts <- function(x) {
+  if (!length(x)) {
+    return(lgl())
+  }
+
+  lagged <- c(NA, x[-length(x)])
+  x != lagged | (is.na(lagged) & !is.na(x))
+}
+
+# No ANSI support
+capitalise <- function(x) {
+  stopifnot(length(x) == 1)
+  n <- nchar(x)
+  if (n == 0) {
+    x
+  } else if (n == 1) {
+    toupper(x)
+  } else {
+    paste0(toupper(substring(x, 1, 1)), substring(x, 2))
+  }
+}
+
+testing <- function() {
+  nzchar(Sys.getenv("TESTTHAT"))
+}
+
+cli_with_whiteline_escapes <- function(x, fn) {
+  x <- gsub("\n", "__NEW_LINE__", x, fixed = TRUE)
+  x <- gsub(" ", "__SPACE__", x, fixed = TRUE)
+  x <- fn(x)
+  x <- gsub("__SPACE__", " ", x, fixed = TRUE)
+  x <- gsub("__NEW_LINE__", "\n", x, fixed = TRUE)
+  x
+}
+
+style_rlang_run <- function(code) {
+  style_hyperlink(
+    paste0("rlang::", code),
+    paste0("x-r-run:rlang::", code)
+  )
+}
+
+vec_remove <- function(x, values) {
+  loc <- match(values, x, nomatch = 0)
+  if (sum(loc) == 0) {
+    x
+  } else {
+    x[-loc]
+  }
+}
+
+str_nzchar <- function(x) {
+  is_string(x) && nzchar(x)
+}
+
+pkg_url_bug <- function(pkg) {
+  # First check that package is installed, e.g. in case of
+  # runtime-only namespace created by pkgload
+  if (nzchar(system.file(package = pkg))) {
+    url <- utils::packageDescription(pkg)$BugReports
+
+    # `url` can be NULL if not part of the description
+    if (is_string(url) && grepl("^https://", url)) {
+      return(url)
+    }
+  }
+
+  NULL
 }
